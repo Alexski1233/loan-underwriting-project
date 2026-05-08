@@ -1,4 +1,4 @@
-# Loan Underwriting and Risk-Based Pricing Model
+# loan-underwriting-project
 
 A transparent credit underwriting project that combines PostgreSQL, Python, the 5 Cs of credit, simplified Norwegian lending rules, and Monte Carlo loss simulation to decide whether a loan should be approved and what interest rate should be offered.
 
@@ -113,6 +113,13 @@ The expected pattern is:
 The `data/` and `output/` folders are generated when the model is run.
 
 ## How to Run
+
+Clone the project:
+
+```bash
+git clone https://github.com/Alexski1233/loan-underwriting-project.git
+cd loan-underwriting-project
+```
 
 Start PostgreSQL:
 
