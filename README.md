@@ -1,13 +1,13 @@
 # Loan Underwriting and Risk-Based Pricing Model
 
-A transparent credit underwriting project that combines SQL, Python, the 5 Cs of credit, simplified Norwegian lending rules, and Monte Carlo loss simulation to decide whether a loan should be approved and what interest rate should be offered.
+A transparent credit underwriting project that combines PostgreSQL, Python, the 5 Cs of credit, simplified Norwegian lending rules, and Monte Carlo loss simulation to decide whether a loan should be approved and what interest rate should be offered.
 
 The project is built as a portfolio/CV project: readable, reproducible, and focused on explaining the decision logic behind loan approval and risk-based pricing.
 
 ## Project Highlights
 
 - Models three loan types: mortgage, car loan, and consumer loan.
-- Uses SQL to store applications and calculate underwriting features such as DTI, LTV, liquidity buffer, and regulatory checks.
+- Uses PostgreSQL to store applications and calculate underwriting features such as DTI, LTV, liquidity buffer, and regulatory checks.
 - Uses Python to score the 5 Cs of credit: credit history, capacity, collateral, capital, and conditions.
 - Applies simplified Norwegian lending rules such as 5x income, mortgage LTV limit, consumer loan term limit, and interest stress testing.
 - Uses Monte Carlo simulation to estimate expected loss and tail loss.
@@ -33,9 +33,9 @@ This project demonstrates that logic with a simple but explainable scorecard mod
 
 The model has three layers:
 
-1. **SQL feature layer**
+1. **PostgreSQL feature layer**
    - stores synthetic loan applications
-   - calculates debt-to-income, loan-to-value, capital-to-loan, and liquidity metrics
+   - calculates debt-to-income, loan-to-value, capital-to-loan, and liquidity metrics using SQL views
    - flags hard-rule failures
 
 2. **Python underwriting layer**
@@ -97,38 +97,56 @@ The expected pattern is:
 
 ```text
 .
-├── docs/
-│   ├── cv_summary.md
-│   ├── methodology.md
-│   └── references.md
-├── sql/
-│   └── schema.sql
-├── src/
-│   └── loan_underwriting.py
-├── README.md
-└── requirements.txt
+|-- docker-compose.yml
+|-- docs/
+|   |-- cv_summary.md
+|   |-- methodology.md
+|   `-- references.md
+|-- sql/
+|   `-- schema.sql
+|-- src/
+|   `-- loan_underwriting.py
+|-- README.md
+`-- requirements.txt
 ```
 
 The `data/` and `output/` folders are generated when the model is run.
 
 ## How to Run
 
-This project uses only the Python standard library.
+Start PostgreSQL:
+
+```bash
+docker compose up -d
+```
+
+Install Python dependency:
+
+```bash
+pip install -r requirements.txt
+```
+
+Run the model:
 
 ```bash
 python src/loan_underwriting.py
 ```
 
-The script regenerates:
+The script connects to PostgreSQL using this default URL:
 
-- synthetic loan application data
-- SQLite database
-- underwriting result CSV
-- summary CSV files
-- model report
+```text
+postgresql://loan_user:loan_password@localhost:5432/loan_underwriting
+```
+
+You can override it with:
+
+```bash
+export DATABASE_URL="postgresql://user:password@localhost:5432/database"
+```
 
 ## Outputs
 
+- `data/loan_applications.csv`: generated synthetic input data
 - `output/underwriting_results.csv`: row-level result for every application
 - `output/model_report.md`: readable report with assumptions and result tables
 - `output/decision_summary.csv`: summary by decision
@@ -137,8 +155,9 @@ The script regenerates:
 ## Tech Stack
 
 - Python
-- SQLite
+- PostgreSQL
 - SQL views
+- Docker Compose
 - Monte Carlo simulation
 - Scorecard modeling
 - Synthetic data generation
