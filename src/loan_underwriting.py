@@ -2,21 +2,30 @@ from __future__ import annotations
 
 import csv
 import math
+import os
 import random
-import sqlite3
 from pathlib import Path
 from statistics import mean
 
+import psycopg
+from psycopg.rows import dict_row
+
+# Base rate assumption: Norwegian policy rate / styringsrente.
 BASE_RATE = 0.0425
 RANDOM_SEED = 42
 SIMULATIONS = 10_000
+
+# The default URL matches docker-compose.yml.
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://loan_user:loan_password@localhost:5432/loan_underwriting",
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
 OUTPUT_DIR = ROOT / "output"
 SQL_SCHEMA = ROOT / "sql" / "schema.sql"
 DATA_FILE = DATA_DIR / "loan_applications.csv"
-DB_FILE = OUTPUT_DIR / "loan_underwriting.db"
 RESULTS_FILE = OUTPUT_DIR / "underwriting_results.csv"
 DECISION_SUMMARY_FILE = OUTPUT_DIR / "decision_summary.csv"
 RISK_CLASS_SUMMARY_FILE = OUTPUT_DIR / "risk_class_summary.csv"
@@ -48,10 +57,12 @@ FIELDS = [
 
 
 def clamp(value: float, low: float = 0.0, high: float = 100.0) -> float:
+    """Keep scores and simulated loss severities inside a sensible range."""
     return max(low, min(high, value))
 
 
 def band_score(value: float, bands: list[tuple[float, float]], default: float) -> float:
+    """Convert a numeric metric into a simple scorecard band."""
     for threshold, score in bands:
         if value <= threshold:
             return score
@@ -59,6 +70,7 @@ def band_score(value: float, bands: list[tuple[float, float]], default: float) -
 
 
 def annuity_payment(principal: float, annual_rate: float, years: int) -> float:
+    """Calculate monthly annuity payment for the stress test."""
     months = max(years * 12, 1)
     monthly_rate = annual_rate / 12
     if monthly_rate == 0:
@@ -66,7 +78,24 @@ def annuity_payment(principal: float, annual_rate: float, years: int) -> float:
     return principal * monthly_rate / (1 - (1 + monthly_rate) ** -months)
 
 
+def connect() -> psycopg.Connection:
+    """Open a PostgreSQL connection using DATABASE_URL."""
+    return psycopg.connect(DATABASE_URL, row_factory=dict_row)
+
+
+def run_schema() -> None:
+    """Recreate the PostgreSQL table and views from sql/schema.sql."""
+    schema = SQL_SCHEMA.read_text(encoding="utf-8")
+    statements = [statement.strip() for statement in schema.split(";") if statement.strip()]
+
+    with connect() as conn:
+        with conn.cursor() as cur:
+            for statement in statements:
+                cur.execute(statement)
+
+
 def generate_synthetic_applications() -> list[dict[str, object]]:
+    """Generate safe synthetic data so no real customer data is published."""
     rng = random.Random(RANDOM_SEED)
     rows: list[dict[str, object]] = []
     purposes = {
@@ -78,6 +107,7 @@ def generate_synthetic_applications() -> list[dict[str, object]]:
     application_id = 1
     for loan_type in ["mortgage", "car", "consumer"]:
         for _ in range(40):
+            # Each loan type gets a different risk profile.
             if loan_type == "mortgage":
                 annual_income = rng.randint(480_000, 1_650_000)
                 loan_amount = rng.randint(1_500_000, 6_200_000)
@@ -149,6 +179,7 @@ def generate_synthetic_applications() -> list[dict[str, object]]:
 
 
 def write_csv(path: Path, rows: list[dict[str, object]]) -> None:
+    """Write model input or output rows to CSV."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as file:
         writer = csv.DictWriter(file, fieldnames=list(rows[0].keys()))
@@ -156,26 +187,29 @@ def write_csv(path: Path, rows: list[dict[str, object]]) -> None:
         writer.writerows(rows)
 
 
-def build_database(rows: list[dict[str, object]]) -> None:
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    if DB_FILE.exists():
-        DB_FILE.unlink()
-    with sqlite3.connect(DB_FILE) as conn:
-        conn.executescript(SQL_SCHEMA.read_text(encoding="utf-8"))
-        placeholders = ", ".join(["?"] * len(FIELDS))
-        conn.executemany(
-            f"INSERT INTO loan_applications ({', '.join(FIELDS)}) VALUES ({placeholders})",
-            [[row[field] for field in FIELDS] for row in rows],
-        )
+def load_applications(rows: list[dict[str, object]]) -> None:
+    """Insert generated applications into PostgreSQL."""
+    placeholders = ", ".join(["%s"] * len(FIELDS))
+    columns = ", ".join(FIELDS)
+
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.executemany(
+                f"INSERT INTO loan_applications ({columns}) VALUES ({placeholders})",
+                [[row[field] for field in FIELDS] for row in rows],
+            )
 
 
-def fetch_rows() -> list[dict[str, object]]:
-    with sqlite3.connect(DB_FILE) as conn:
-        conn.row_factory = sqlite3.Row
-        return [dict(row) for row in conn.execute("SELECT * FROM regulatory_check ORDER BY application_id")]
+def fetch_underwriting_rows() -> list[dict[str, object]]:
+    """Read engineered features and regulatory flags from PostgreSQL views."""
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM regulatory_check ORDER BY application_id")
+            return list(cur.fetchall())
 
 
 def score_credit_history(row: dict[str, object]) -> float:
+    """Character / credit history: prior repayment behavior."""
     credit_score = (float(row["credit_score"]) - 300) / 550 * 100
     utilization = band_score(float(row["credit_utilization"]), [(0.30, 100), (0.50, 80), (0.75, 55), (0.90, 30)], 10)
     clean_record = 100 - 35 * int(row["payment_remarks"]) - 50 * int(row["previous_defaults"])
@@ -183,6 +217,7 @@ def score_credit_history(row: dict[str, object]) -> float:
 
 
 def score_capacity(row: dict[str, object]) -> float:
+    """Capacity: ability to pay after existing debt and stressed new payment."""
     dti = float(row["dti_after_loan"])
     dti_score = band_score(dti, [(2.5, 100), (3.5, 80), (4.5, 60), (5.0, 40)], 10)
 
@@ -206,6 +241,7 @@ def score_capacity(row: dict[str, object]) -> float:
 
 
 def score_collateral(row: dict[str, object]) -> float:
+    """Collateral: security value and LTV."""
     loan_type = str(row["loan_type"])
     if loan_type == "consumer" or row["ltv"] is None:
         return 15
@@ -216,6 +252,7 @@ def score_collateral(row: dict[str, object]) -> float:
 
 
 def score_capital(row: dict[str, object]) -> float:
+    """Capital: own money, assets, and liquidity buffer."""
     capital_to_loan = float(row["capital_to_loan"])
     liquidity_months = float(row["liquidity_months_before_loan"])
     capital_score = band_score(capital_to_loan, [(0.05, 20), (0.10, 45), (0.20, 70), (0.35, 90)], 100)
@@ -224,6 +261,7 @@ def score_capital(row: dict[str, object]) -> float:
 
 
 def score_conditions(row: dict[str, object]) -> float:
+    """Conditions: loan purpose, product type, and term risk."""
     purpose_scores = {
         "home_purchase": 85,
         "home_refinance": 75,
@@ -246,6 +284,7 @@ def score_conditions(row: dict[str, object]) -> float:
 
 
 def risk_class(score: float) -> str:
+    """Map final score to a simple risk class."""
     if score >= 85:
         return "A"
     if score >= 75:
@@ -258,12 +297,14 @@ def risk_class(score: float) -> str:
 
 
 def estimate_pd(final_score: float, loan_type: str) -> float:
+    """Estimate probability of default from score and loan type."""
     base_pd = 0.002 + 0.22 / (1 + math.exp((final_score - 55) / 7.5))
     multiplier = {"mortgage": 0.50, "car": 0.85, "consumer": 1.35}[loan_type]
     return min(base_pd * multiplier, 0.35)
 
 
 def estimate_lgd(row: dict[str, object]) -> float:
+    """Estimate loss given default from collateral and haircut assumptions."""
     loan_type = str(row["loan_type"])
     if loan_type == "consumer":
         return 0.90
@@ -275,6 +316,7 @@ def estimate_lgd(row: dict[str, object]) -> float:
 
 
 def simulate_pricing(row: dict[str, object], final_score: float) -> dict[str, float]:
+    """Use Monte Carlo losses to turn credit risk into a risk margin."""
     loan_type = str(row["loan_type"])
     pd = estimate_pd(final_score, loan_type)
     lgd = estimate_lgd(row)
@@ -294,6 +336,7 @@ def simulate_pricing(row: dict[str, object], final_score: float) -> dict[str, fl
     tail_loss = mean(losses[-max(1, SIMULATIONS // 100):])
     risk_margin = expected_loss + 0.12 * max(0.0, tail_loss - expected_loss)
     risk_margin = min(max(risk_margin, 0.0015), 0.25)
+
     product_margin = {"mortgage": 0.006, "car": 0.018, "consumer": 0.045}[loan_type]
     offered_rate = min(BASE_RATE + product_margin + risk_margin, 0.35)
 
@@ -309,6 +352,7 @@ def simulate_pricing(row: dict[str, object], final_score: float) -> dict[str, fl
 
 
 def stress_test(row: dict[str, object], offered_rate: float) -> tuple[bool, float, float]:
+    """Check if borrower can handle offered rate + 3 pp or at least 7%."""
     stressed_rate = max(offered_rate + 0.03, 0.07)
     stressed_payment = annuity_payment(float(row["loan_amount"]), stressed_rate, int(row["term_years"]))
     surplus = float(row["monthly_income"]) - float(row["monthly_fixed_expenses"]) - float(row["existing_debt_monthly_payment"]) - stressed_payment
@@ -317,6 +361,7 @@ def stress_test(row: dict[str, object], offered_rate: float) -> tuple[bool, floa
 
 
 def make_decision(row: dict[str, object], final_score: float, passes_stress: bool) -> tuple[str, str]:
+    """Apply hard rules first, then use the 5 Cs score."""
     if int(row["passes_debt_to_income_rule"]) == 0:
         return "Reject", "Debt above 5x income"
     if int(row["passes_mortgage_ltv_rule"]) == 0:
@@ -333,6 +378,7 @@ def make_decision(row: dict[str, object], final_score: float, passes_stress: boo
 
 
 def enrich(row: dict[str, object]) -> dict[str, object]:
+    """Score, price, stress test, and explain one application."""
     scores = {
         "credit_history": score_credit_history(row),
         "capacity": score_capacity(row),
@@ -354,22 +400,25 @@ def enrich(row: dict[str, object]) -> dict[str, object]:
 
     output = dict(row)
     output.update({f"score_{name}": round(value, 2) for name, value in scores.items()})
-    output.update({
-        "final_score": round(final_score, 2),
-        "risk_class": risk_class(final_score),
-        "base_rate": BASE_RATE,
-        "stressed_rate": round(stressed_rate, 5),
-        "stress_surplus_monthly": round(stress_surplus, 2),
-        "passes_interest_stress_test": int(passes_stress),
-        "decision": decision,
-        "decision_reason": reason,
-        "weakest_components": "; ".join(f"{name}={score:.1f}" for name, score in weakest),
-    })
+    output.update(
+        {
+            "final_score": round(final_score, 2),
+            "risk_class": risk_class(final_score),
+            "base_rate": BASE_RATE,
+            "stressed_rate": round(stressed_rate, 5),
+            "stress_surplus_monthly": round(stress_surplus, 2),
+            "passes_interest_stress_test": int(passes_stress),
+            "decision": decision,
+            "decision_reason": reason,
+            "weakest_components": "; ".join(f"{name}={score:.1f}" for name, score in weakest),
+        }
+    )
     output.update({name: round(value, 5) for name, value in pricing.items()})
     return output
 
 
 def summarize(rows: list[dict[str, object]], group_field: str) -> list[dict[str, object]]:
+    """Create summary tables for reporting."""
     groups: dict[str, list[dict[str, object]]] = {}
     for row in rows:
         groups.setdefault(str(row[group_field]), []).append(row)
@@ -377,19 +426,22 @@ def summarize(rows: list[dict[str, object]], group_field: str) -> list[dict[str,
     summary = []
     for group, items in sorted(groups.items()):
         priced = [float(row["offered_rate"]) for row in items if row["decision"] != "Reject"]
-        summary.append({
-            group_field: group,
-            "applications": len(items),
-            "approved": sum(row["decision"] == "Approve" for row in items),
-            "manual_review": sum(row["decision"] == "Manual review" for row in items),
-            "rejected": sum(row["decision"] == "Reject" for row in items),
-            "avg_score": round(mean(float(row["final_score"]) for row in items), 2),
-            "avg_offered_rate_non_rejected": round(mean(priced), 5) if priced else "",
-        })
+        summary.append(
+            {
+                group_field: group,
+                "applications": len(items),
+                "approved": sum(row["decision"] == "Approve" for row in items),
+                "manual_review": sum(row["decision"] == "Manual review" for row in items),
+                "rejected": sum(row["decision"] == "Reject" for row in items),
+                "avg_score": round(mean(float(row["final_score"]) for row in items), 2),
+                "avg_offered_rate_non_rejected": round(mean(priced), 5) if priced else "",
+            }
+        )
     return summary
 
 
 def write_report(rows: list[dict[str, object]]) -> None:
+    """Write a short Markdown report for the generated model run."""
     by_type = summarize(rows, "loan_type")
     by_decision = summarize(rows, "decision")
     non_rejected = [row for row in rows if row["decision"] != "Reject"]
@@ -409,6 +461,10 @@ Generated by `src/loan_underwriting.py`.
 ## Purpose
 
 This model combines the 5 Cs of credit with simplified Norwegian lending rules to produce approval decisions, risk classes, and risk-based offered rates.
+
+## Database
+
+The model uses PostgreSQL for the loan application table and underwriting views.
 
 ## Pricing Formula
 
@@ -432,14 +488,17 @@ Non-rejected applications: {min(rates):.2%} to {max(rates):.2%}, average {mean(r
 
 
 def main() -> None:
+    """Run the full underwriting and pricing pipeline."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     raw_rows = generate_synthetic_applications()
     write_csv(DATA_FILE, raw_rows)
-    build_database(raw_rows)
 
-    result_rows = [enrich(row) for row in fetch_rows()]
+    run_schema()
+    load_applications(raw_rows)
+
+    result_rows = [enrich(row) for row in fetch_underwriting_rows()]
     write_csv(RESULTS_FILE, result_rows)
     write_csv(DECISION_SUMMARY_FILE, summarize(result_rows, "decision"))
     write_csv(RISK_CLASS_SUMMARY_FILE, summarize(result_rows, "risk_class"))
@@ -447,8 +506,8 @@ def main() -> None:
 
     print(f"Applications: {len(result_rows)}")
     print(f"Base rate: {BASE_RATE:.2%}")
+    print(f"Database: PostgreSQL")
     print(f"Wrote: {DATA_FILE.relative_to(ROOT)}")
-    print(f"Wrote: {DB_FILE.relative_to(ROOT)}")
     print(f"Wrote: {RESULTS_FILE.relative_to(ROOT)}")
     print(f"Wrote: {MODEL_REPORT_FILE.relative_to(ROOT)}")
 
