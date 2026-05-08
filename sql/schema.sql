@@ -1,34 +1,34 @@
-DROP TABLE IF EXISTS loan_applications;
+DROP VIEW IF EXISTS regulatory_check CASCADE;
+DROP VIEW IF EXISTS underwriting_features CASCADE;
+DROP TABLE IF EXISTS loan_applications CASCADE;
 
 CREATE TABLE loan_applications (
     application_id INTEGER PRIMARY KEY,
-    customer_id TEXT NOT NULL,
-    loan_type TEXT NOT NULL CHECK (loan_type IN ('mortgage', 'car', 'consumer')),
-    loan_purpose TEXT NOT NULL,
-    loan_amount REAL NOT NULL,
+    customer_id VARCHAR(20) NOT NULL,
+    loan_type VARCHAR(20) NOT NULL CHECK (loan_type IN ('mortgage', 'car', 'consumer')),
+    loan_purpose VARCHAR(50) NOT NULL,
+    loan_amount NUMERIC(14, 2) NOT NULL,
     term_years INTEGER NOT NULL,
 
-    annual_income REAL NOT NULL,
-    monthly_fixed_expenses REAL NOT NULL,
-    existing_debt REAL NOT NULL,
-    existing_debt_monthly_payment REAL NOT NULL,
-    employment_years REAL NOT NULL,
+    annual_income NUMERIC(14, 2) NOT NULL,
+    monthly_fixed_expenses NUMERIC(14, 2) NOT NULL,
+    existing_debt NUMERIC(14, 2) NOT NULL,
+    existing_debt_monthly_payment NUMERIC(14, 2) NOT NULL,
+    employment_years NUMERIC(5, 2) NOT NULL,
 
     credit_score INTEGER NOT NULL,
-    credit_utilization REAL NOT NULL,
+    credit_utilization NUMERIC(6, 3) NOT NULL,
     active_credit_lines INTEGER NOT NULL,
     payment_remarks INTEGER NOT NULL,
     previous_defaults INTEGER NOT NULL,
 
-    savings REAL NOT NULL,
-    investments REAL NOT NULL,
-    other_assets REAL NOT NULL,
+    savings NUMERIC(14, 2) NOT NULL,
+    investments NUMERIC(14, 2) NOT NULL,
+    other_assets NUMERIC(14, 2) NOT NULL,
 
-    collateral_value REAL NOT NULL,
-    collateral_type TEXT NOT NULL
+    collateral_value NUMERIC(14, 2) NOT NULL,
+    collateral_type VARCHAR(50) NOT NULL
 );
-
-DROP VIEW IF EXISTS underwriting_features;
 
 CREATE VIEW underwriting_features AS
 SELECT
@@ -44,8 +44,6 @@ SELECT
     (savings + investments + other_assets) / NULLIF(loan_amount, 0) AS capital_to_loan,
     savings / NULLIF(monthly_fixed_expenses + existing_debt_monthly_payment, 0) AS liquidity_months_before_loan
 FROM loan_applications;
-
-DROP VIEW IF EXISTS regulatory_check;
 
 CREATE VIEW regulatory_check AS
 SELECT
