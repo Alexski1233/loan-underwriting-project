@@ -2,7 +2,7 @@
 
 ## Project Title
 
-Loan Underwriting and Risk-Based Pricing Model
+loan-underwriting-project
 
 ## Short Description
 
@@ -10,7 +10,7 @@ Built a transparent PostgreSQL and Python credit-risk model that evaluates synth
 
 ## CV Bullet Points
 
-- Developed an end-to-end loan underwriting pipeline in Python and PostgreSQL, covering data generation, SQL feature engineering, credit scoring, regulatory checks, stress testing, and risk-based pricing.
+- Developed `loan-underwriting-project`, an end-to-end loan underwriting pipeline in Python and PostgreSQL covering data generation, SQL feature engineering, credit scoring, regulatory checks, stress testing, and risk-based pricing.
 - Implemented PostgreSQL tables and views for underwriting metrics such as debt-to-income, loan-to-value, capital-to-loan ratio, and regulatory pass/fail flags.
 - Built a 5 Cs scorecard model using credit history, capacity, collateral, capital, and loan conditions to assign borrower risk scores and risk classes.
 - Added simplified Norwegian lending constraints, including debt-to-income limits, mortgage LTV checks, consumer loan term rules, and interest-rate stress testing.
