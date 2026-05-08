@@ -73,17 +73,21 @@ The model includes simplified versions of common Norwegian lending constraints:
 
 These rules are simplified for a school/portfolio project and should not be treated as a complete regulatory implementation.
 
-## Example Results
+## Expected Output
 
-The generated sample contains 120 synthetic loan applications.
+Running the model generates 120 synthetic loan applications and writes:
 
-| Loan type | Applications | Approved | Manual review | Rejected | Average offered rate for non-rejected |
-|---|---:|---:|---:|---:|---:|
-| Car | 40 | 35 | 2 | 3 | 8.93% |
-| Consumer | 40 | 3 | 16 | 21 | 23.05% |
-| Mortgage | 40 | 14 | 1 | 25 | 5.48% |
+- row-level underwriting results
+- approval, manual review, and rejection decisions
+- rejection reasons
+- 5 Cs component scores
+- risk classes
+- estimated PD and LGD
+- expected and tail loss estimates
+- risk-based offered rates
+- a Markdown model report
 
-The pattern is intentional:
+The expected pattern is:
 
 - mortgages usually receive lower rates because they are secured by property
 - car loans have medium risk because the collateral depreciates
@@ -95,7 +99,8 @@ The pattern is intentional:
 .
 ├── docs/
 │   ├── cv_summary.md
-│   └── methodology.md
+│   ├── methodology.md
+│   └── references.md
 ├── sql/
 │   └── schema.sql
 ├── src/
