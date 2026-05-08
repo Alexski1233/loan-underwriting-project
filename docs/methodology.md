@@ -14,9 +14,9 @@ Each application includes borrower income, existing debt, expenses, employment h
 
 The data is synthetic so the project can be published safely on GitHub without personal or confidential information.
 
-## 2. SQL Feature Engineering
+## 2. PostgreSQL Feature Engineering
 
-SQL is used for the structured underwriting layer. The database includes:
+PostgreSQL is used for the structured underwriting layer. The database includes:
 
 - one main `loan_applications` table
 - one `underwriting_features` view
@@ -32,6 +32,8 @@ The SQL views calculate:
 - capital-to-loan ratio
 - liquidity buffer before the new loan
 - simplified regulatory pass/fail flags
+
+This keeps core underwriting metrics inside the database, while Python handles scoring, simulation, and reporting.
 
 ## 3. 5 Cs Credit Score
 
