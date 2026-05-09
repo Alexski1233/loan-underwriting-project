@@ -1,76 +1,121 @@
 # loan-underwriting-project
 
-A small loan underwriting project with Python and PostgreSQL.
+A pedagogical loan underwriting project built with Python and PostgreSQL.
 
-The project is intentionally simple. PostgreSQL is used as the database. Python creates sample loan applications, checks them with a few clear rules, and saves the result back to the database.
+The project uses a simple rule-based workflow to evaluate sample loan applications. It is not a production banking model, a machine learning model, or a complete credit-risk system. The goal is to demonstrate practical use of Python, SQL, and PostgreSQL in a banking and credit context.
 
 ## What the project does
 
-1. Creates sample loan applications.
+1. Generates sample loan applications.
 2. Stores the applications in PostgreSQL.
-3. Checks each application with simple rules.
-4. Saves one result row per application.
-5. Saves a short summary by customer type.
+3. Calculates key underwriting metrics such as debt-to-income and loan-to-value.
+4. Classifies each application as `Approve`, `Reject`, or `Manual review`.
+5. Stores detailed results and a summary by customer type.
+6. Exports CSV files so the output can also be inspected outside the database.
 
-## Database tables
+## Decision rules
 
-The SQL file creates three tables:
-
-- `loan_applications`: the original loan applications
-- `underwriting_results`: the decision for each application
-- `customer_type_summary`: a summary for `strong`, `regular`, and `risky` customers
-
-SQL is only used for storing the data. The calculations are kept in Python so the flow is easy to follow.
-
-## Simple decision rules
-
-The project uses these rules:
+The rules are intentionally simple and explainable:
 
 - reject if the customer has payment remarks
 - reject if total debt after the new loan is above 5x annual income
 - send mortgage applications to manual review if loan-to-value is above 90%
 - send applications to manual review if debt is close to the limit
+- send large consumer loans to manual review
 - approve applications that pass the rules
 
-This is not a real bank model. It is a simple example project.
+These rules are simplified for learning purposes. They should not be treated as real bank policy.
+
+## Database tables
+
+The SQL schema creates three tables:
+
+- `loan_applications`: generated loan applications
+- `underwriting_results`: one underwriting decision per application
+- `customer_type_summary`: aggregated results for `strong`, `regular`, and `risky` customers
+
+## Technologies used
+
+- Python
+- PostgreSQL
+- SQL
+- pandas
+- GitHub
+
+## Project structure
+
+```text
+.
+|-- README.md
+|-- requirements.txt
+|-- sql/
+|   `-- schema.sql
+`-- src/
+    `-- loan_underwriting.py
+```
+
+The script also creates these folders when it runs:
+
+```text
+data/
+output/
+```
 
 ## How to run
 
-Start PostgreSQL:
-
-```bash
-docker compose up -d
-```
-
-Install the Python dependency:
+Install the Python dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
+Make sure the PostgreSQL database exists:
+
+```bash
+createdb loan_underwriting
+```
+
 Run the project:
 
 ```bash
-python src/loan_underwriting.py
+python3 src/loan_underwriting.py
 ```
 
-The script uses this database URL unless another one is set:
+By default, the script connects to a local PostgreSQL database using:
 
 ```text
-postgresql://loan_user:loan_password@localhost:5432/loan_underwriting
+postgresql:///loan_underwriting
 ```
 
-## Files
+If your PostgreSQL setup requires a username and password, set `DATABASE_URL` before running the script:
+
+```bash
+export DATABASE_URL='postgresql://your_user:your_password@localhost:5432/loan_underwriting'
+python3 src/loan_underwriting.py
+```
+
+## Expected output
+
+A successful run prints:
 
 ```text
-.
-|-- docker-compose.yml
-|-- requirements.txt
-|-- sql/
-|   `-- schema.sql
-|-- src/
-|   `-- loan_underwriting.py
-`-- README.md
+Applications checked: 36
+Wrote: output/underwriting_results.csv
+Wrote: output/customer_type_summary.csv
 ```
 
-When the script runs, it also creates CSV files in `data/` and `output/` so the results can be opened without using the database.
+The main output files are:
+
+- `output/underwriting_results.csv`
+- `output/customer_type_summary.csv`
+
+You can also inspect the database directly:
+
+```sql
+SELECT * FROM customer_type_summary;
+
+SELECT application_id, customer_type, loan_type, debt_to_income, loan_to_value, decision, decision_reason
+FROM underwriting_results
+ORDER BY application_id
+LIMIT 10;
+```
