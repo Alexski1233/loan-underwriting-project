@@ -1,14 +1,11 @@
-import csv
 import os
 import random
 from pathlib import Path
 
+import pandas as pd
 import psycopg
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://loan_user:loan_password@localhost:5432/loan_underwriting",
-)
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql:///loan_underwriting")
 
 ROOT = Path(__file__).resolve().parents[1]
 SQL_SCHEMA = ROOT / "sql" / "schema.sql"
@@ -201,11 +198,7 @@ def save_rows(table_name, columns, rows):
 
 def write_csv(file_path, columns, rows):
     file_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with file_path.open("w", newline="", encoding="utf-8") as file:
-        writer = csv.DictWriter(file, fieldnames=columns)
-        writer.writeheader()
-        writer.writerows(rows)
+    pd.DataFrame(rows, columns=columns).to_csv(file_path, index=False)
 
 
 def main():
